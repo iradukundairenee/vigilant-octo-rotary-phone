@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>IVR Voice Auto Play</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        min-height: 100vh;
+      }
+      
+      h1 {
+        text-align: center;
+        margin-bottom: 30px;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+      }
+      
+      #startButton {
+        display: block;
+        margin: 20px auto;
+        padding: 15px 30px;
+        font-size: 18px;
+        background: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 25px;
+        cursor: pointer;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        transition: all 0.3s ease;
+      }
+      
+      #startButton:hover {
+        background: #45a049;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+      }
+      
+      #startButton:disabled {
+        background: #cccccc;
+        cursor: not-allowed;
+        transform: none;
+      }
+      
+      #ivrContainer {
+        display: none;
+        text-align: center;
+        background: rgba(255,255,255,0.1);
+        padding: 30px;
+        border-radius: 15px;
+        backdrop-filter: blur(10px);
+      }
+      
+      audio {
+        width: 100%;
+        margin: 20px 0;
+        border-radius: 10px;
+      }
+      
+      .button-container {
+        display: flex;
+        gap: 15px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-top: 20px;
+      }
+      
+      .choice-button {
+        padding: 12px 24px;
+        font-size: 16px;
+        background: rgba(255,255,255,0.2);
+        color: white;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-radius: 20px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        min-width: 120px;
+      }
+      
+      .choice-button:hover {
+        background: rgba(255,255,255,0.3);
+        border-color: rgba(255,255,255,0.6);
+        transform: translateY(-2px);
+      }
+      
+      .choice-button:active {
+        transform: translateY(0);
+      }
+      
+      #status {
+        margin: 20px 0;
+        font-style: italic;
+        opacity: 0.8;
+      }
+      
+      .loading {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 3px solid rgba(255,255,255,0.3);
+        border-radius: 50%;
+        border-top-color: white;
+        animation: spin 1s ease-in-out infinite;
+        margin-left: 10px;
+      }
+      
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Safe Youth IVR Demo</h1>
+
+    <button id="startButton" onclick="startIVR()">
+      🎙️ Start IVR System
+    </button>
+
+    <div id="ivrContainer">
+      <div id="status">Ready to play audio...</div>
+      <audio id="audioPlayer" controls preload="auto"></audio>
+      
+      <div class="button-container">
+        <button class="choice-button" onclick="handleChoice('1')">
+          Press 1 
+        </button>
+        <button class="choice-button" onclick="handleChoice('2')">
+          Press 2 
+        </button>
+        <button class="choice-button" onclick="handleChoice('3')">
+          Press 3 
+        </button>
+      </div>
+    </div>
+
+    <script>
+      let audioContext = null;
+      let isAudioUnlocked = false;
+
+      // Enhanced autoplay unlock function
+      async function unlockAudioContext() {
+        if (isAudioUnlocked) return true;
+
+        try {
+          // Create AudioContext if it doesn't exist
+          if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          }
+
+          // Resume AudioContext if it's suspended
+          if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+          }
+
+          // Play a short silent audio to unlock
+          const audioPlayer = document.getElementById("audioPlayer");
+          const silentDataUrl = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+          
+          audioPlayer.src = silentDataUrl;
+          audioPlayer.muted = true;
+          
+          await audioPlayer.play();
+          
+          audioPlayer.muted = false;
+          isAudioUnlocked = true;
+          
+          return true;
+        } catch (err) {
+          console.warn("Could not unlock audio:", err);
+          return false;
+        }
+      }
+
+      async function playVoice(text) {
+        const audioPlayer = document.getElementById("audioPlayer");
+        const status = document.getElementById("status");
+        
+        try {
+          status.innerHTML = 'Loading audio... <span class="loading"></span>';
+          
+          const response = await fetch(
+            `http://localhost:3000/tts?text=${encodeURIComponent(text)}`
+          );
+          
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          
+          const data = await response.json();
+
+          // Set the audio source
+          audioPlayer.src = data.url;
+          
+          status.textContent = 'Audio ready, playing...';
+
+          // Wait for the audio to load before playing
+          return new Promise((resolve, reject) => {
+            audioPlayer.oncanplaythrough = async () => {
+              try {
+                await audioPlayer.play();
+                status.textContent = 'Playing audio...';
+                resolve();
+              } catch (err) {
+                status.textContent = 'Autoplay blocked. Please use the audio controls.';
+                console.warn("Autoplay failed:", err);
+                resolve(); // Don't reject, just log the warning
+              }
+            };
+
+            audioPlayer.onerror = () => {
+              status.textContent = 'Error loading audio.';
+              reject(new Error('Failed to load audio'));
+            };
+
+            audioPlayer.onended = () => {
+              status.textContent = 'Audio finished. Make your choice.';
+            };
+
+            // Set a timeout in case the audio never loads
+            setTimeout(() => {
+              if (audioPlayer.readyState < 3) {
+                status.textContent = 'Audio loading timeout.';
+                reject(new Error('Audio loading timeout'));
+              }
+            }, 10000);
+          });
+        } catch (err) {
+          status.textContent = 'Error playing voice. Check console for details.';
+          console.error("Error playing voice:", err);
+          throw err;
+        }
+      }
+
+      // Start IVR system with user interaction
+      async function startIVR() {
+        const startButton = document.getElementById("startButton");
+        const ivrContainer = document.getElementById("ivrContainer");
+        const status = document.getElementById("status");
+
+        startButton.disabled = true;
+        startButton.textContent = "Starting...";
+
+        try {
+          // Unlock audio with user gesture
+          await unlockAudioContext();
+          
+          // Load config
+          status.textContent = "Loading configuration...";
+          const configRes = await fetch("http://localhost:3000/config");
+          
+          if (!configRes.ok) {
+            throw new Error(`Failed to load config: ${configRes.status}`);
+          }
+          
+          const config = await configRes.json();
+          window.IVR_CONFIG = config;
+
+          // Show IVR interface
+          startButton.style.display = "none";
+          ivrContainer.style.display = "block";
+
+          // Play welcome message
+          await playVoice(config.welcomeMessage);
+
+        } catch (err) {
+          console.error("Error starting IVR:", err);
+          status.textContent = `Error: ${err.message}. Please check if the server is running on port 3000.`;
+          startButton.disabled = false;
+          startButton.textContent = "🎙️ Start IVR System";
+        }
+      }
+
+      // Handle user choice
+      async function handleChoice(choice) {
+        const status = document.getElementById("status");
+        
+        if (!window.IVR_CONFIG) {
+          status.textContent = "Configuration not loaded. Please restart.";
+          return;
+        }
+
+        const choices = {
+          '1': "Safe Youth can help you by providing trusted information on health, relationships, and ways to stay safe. We guide young people to make good decisions and connect them with support when needed.",
+          '2': "To avoid early pregnancy: wait until ready, prioritize education, avoid risks, use protection if sexually active, and consult health professionals",
+          '3': "Connecting you to our ai agent for more support. Please hold while we transfer your call."
+        };
+
+        const message = choices[choice];
+        if (message) {
+          try {
+            await playVoice(message);
+          } catch (err) {
+            status.textContent = "Error playing response. Please try again.";
+          }
+        } else {
+          status.textContent = "Invalid choice. Please select 1, 2, or 3.";
+        }
+      }
+
+      // Check server connection on page load
+      window.addEventListener("load", async () => {
+        try {
+          const response = await fetch("http://localhost:3000/config");
+          if (!response.ok) {
+            throw new Error("Server not responding");
+          }
+          document.getElementById("status").textContent = "Server connected. Click 'Start IVR System' to begin.";
+        } catch (err) {
+          document.getElementById("status").textContent = "⚠️ Server connection failed. Please make sure the server is running on port 3000.";
+          console.error("Server connection error:", err);
+        }
+      });
+    </script>
+  </body>
+</html>
+
+<!-- <!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>IVR Voice Auto Play</title>
+  </head>
+  <body>
+    <h1>Safe Youth IVR Demo</h1>
+
+    <audio id="audioPlayer" controls></audio>
+
+    <div style="margin-top: 20px">
+      <button onclick="handleChoice('1')">Press 1</button>
+      <button onclick="handleChoice('2')">Press 2</button>
+      <button onclick="handleChoice('3')">Press 3</button>
+    </div>
+
+    <script>
+      async function playVoice(text) {
+        const audioPlayer = document.getElementById("audioPlayer");
+        try {
+          const response = await fetch(
+            `http://localhost:3000/tts?text=${encodeURIComponent(text)}`
+          );
+          const data = await response.json();
+
+          // Set the audio source
+          audioPlayer.src = data.url;
+
+          // Wait for the audio to load before playing
+          audioPlayer.oncanplaythrough = () => {
+            audioPlayer.play().catch((err) => {
+              console.warn("Autoplay failed:", err);
+            });
+          };
+        } catch (err) {
+          console.error("Error playing voice:", err);
+        }
+      }
+
+      // 🔊 Unlock autoplay by playing silent audio first
+      function unlockAutoplay() {
+        const silentAudio = new Audio();
+        silentAudio.src =
+          "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+        silentAudio.play().catch(() => {});
+      }
+
+      // ✅ Load IVR config and play welcome
+      window.addEventListener("load", async () => {
+        try {
+          unlockAutoplay(); // Try to unlock autoplay
+
+          const configRes = await fetch("http://localhost:3000/config");
+          const config = await configRes.json();
+
+          window.IVR_CONFIG = config;
+
+          // Play welcome message after short delay
+          setTimeout(() => {
+            playVoice(config.welcomeMessage);
+          }, 2000);
+        } catch (err) {
+          console.error("Error loading config:", err);
+        }
+      });
+
+      // Example choice handler
+      function handleChoice(choice) {
+        const message = window.IVR_CONFIG?.choices?.[choice];
+        if (message) {
+          playVoice(message);
+        } else {
+          console.warn("Invalid choice or missing config.");
+        }
+      }
+    </script>
+  </body>
+</html>
+ -->
