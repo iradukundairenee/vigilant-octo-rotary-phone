@@ -116,23 +116,29 @@
   <body>
     <h1>Safe Youth IVR Demo</h1>
 
-    <button id="startButton" onclick="startIVR()">
-      🎙️ Start IVR System
-    </button>
+    <div id="welcomeScreen" style="text-align: center; padding: 40px;">
+      <h2>🎙️ Murakaza neza muri Safe Youth</h2>
+      <p style="margin: 20px 0; opacity: 0.9;">
+        Kanda button ikurikira kugirango mutangire guhuza amajwi
+      </p>
+      <button id="startButton" onclick="startIVR()">
+        ▶️ Tangira IVR
+      </button>
+    </div>
 
     <div id="ivrContainer">
-      <div id="status">Ready to play audio...</div>
+      <div id="status">Witeguye gukina ijwi...</div>
       <audio id="audioPlayer" controls preload="auto"></audio>
       
       <div class="button-container">
         <button class="choice-button" onclick="handleChoice('1')">
-          Press 1 
+          Kanda 1 - Amakuru y'Ubuzima
         </button>
         <button class="choice-button" onclick="handleChoice('2')">
-          Press 2 
+          Kanda 2 - Kwirinda Inda
         </button>
         <button class="choice-button" onclick="handleChoice('3')">
-          Press 3 
+          Kanda 3 - Kuvuga n'Umukozi
         </button>
       </div>
     </div>
@@ -141,49 +147,42 @@
       let audioContext = null;
       let isAudioUnlocked = false;
 
-      // Enhanced autoplay unlock function
-      async function unlockAudioContext() {
-        if (isAudioUnlocked) return true;
-
+      // Try to unlock audio context automatically
+      async function tryUnlockAudio() {
         try {
-          // Create AudioContext if it doesn't exist
           if (!audioContext) {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
           }
 
-          // Resume AudioContext if it's suspended
           if (audioContext.state === 'suspended') {
             await audioContext.resume();
           }
 
-          // Play a short silent audio to unlock
           const audioPlayer = document.getElementById("audioPlayer");
           const silentDataUrl = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
           
           audioPlayer.src = silentDataUrl;
           audioPlayer.muted = true;
-          
           await audioPlayer.play();
-          
           audioPlayer.muted = false;
-          isAudioUnlocked = true;
           
+          isAudioUnlocked = true;
           return true;
         } catch (err) {
-          console.warn("Could not unlock audio:", err);
+          console.warn("Auto unlock failed, will try with user interaction:", err);
           return false;
         }
       }
 
-      async function playVoice(text) {
+      async function playVoice(text, lang = 'rw') {
         const audioPlayer = document.getElementById("audioPlayer");
         const status = document.getElementById("status");
         
         try {
-          status.innerHTML = 'Loading audio... <span class="loading"></span>';
+          status.innerHTML = 'Guhindura ijwi... <span class="loading"></span>';
           
           const response = await fetch(
-            `http://localhost:3000/tts?text=${encodeURIComponent(text)}`
+            `http://localhost:3000/tts?text=${encodeURIComponent(text)}&lang=${lang}`
           );
           
           if (!response.ok) {
@@ -191,65 +190,66 @@
           }
           
           const data = await response.json();
-
-          // Set the audio source
           audioPlayer.src = data.url;
           
-          status.textContent = 'Audio ready, playing...';
+          status.textContent = 'Ijwi riteguwe, ririmo gucuranga...';
 
-          // Wait for the audio to load before playing
           return new Promise((resolve, reject) => {
             audioPlayer.oncanplaythrough = async () => {
               try {
                 await audioPlayer.play();
-                status.textContent = 'Playing audio...';
+                status.textContent = 'Ijwi ririmo gucuranga...';
                 resolve();
               } catch (err) {
-                status.textContent = 'Autoplay blocked. Please use the audio controls.';
-                console.warn("Autoplay failed:", err);
-                resolve(); // Don't reject, just log the warning
+                // Try to unlock with any user interaction
+                document.addEventListener('click', async () => {
+                  try {
+                    await tryUnlockAudio();
+                    await audioPlayer.play();
+                  } catch (e) {
+                    console.warn("Manual unlock failed:", e);
+                  }
+                }, { once: true });
+                
+                status.textContent = 'Kanda ahantu hose kugirango ijwi ricuranzwe.';
+                resolve();
               }
             };
 
             audioPlayer.onerror = () => {
-              status.textContent = 'Error loading audio.';
+              status.textContent = 'Ikosa mu gufata ijwi.';
               reject(new Error('Failed to load audio'));
             };
 
             audioPlayer.onended = () => {
-              status.textContent = 'Audio finished. Make your choice.';
+              status.textContent = 'Ijwi ryarangiye. Hitamo.';
             };
 
-            // Set a timeout in case the audio never loads
             setTimeout(() => {
               if (audioPlayer.readyState < 3) {
-                status.textContent = 'Audio loading timeout.';
+                status.textContent = 'Ijwi riratinda gufatwa.';
                 reject(new Error('Audio loading timeout'));
               }
             }, 10000);
           });
         } catch (err) {
-          status.textContent = 'Error playing voice. Check console for details.';
+          status.textContent = 'Ikosa mu gucuranza ijwi.';
           console.error("Error playing voice:", err);
           throw err;
         }
       }
 
-      // Start IVR system with user interaction
-      async function startIVR() {
+      // Auto-start IVR without button click
+      async function autoStartIVR() {
         const startButton = document.getElementById("startButton");
         const ivrContainer = document.getElementById("ivrContainer");
         const status = document.getElementById("status");
 
-        startButton.disabled = true;
-        startButton.textContent = "Starting...";
-
         try {
-          // Unlock audio with user gesture
-          await unlockAudioContext();
+          // Try auto unlock
+          await tryUnlockAudio();
           
-          // Load config
-          status.textContent = "Loading configuration...";
+          status.textContent = "Gufata amategeko...";
           const configRes = await fetch("http://localhost:3000/config");
           
           if (!configRes.ok) {
@@ -259,34 +259,41 @@
           const config = await configRes.json();
           window.IVR_CONFIG = config;
 
-          // Show IVR interface
+          // Show IVR interface immediately
           startButton.style.display = "none";
           ivrContainer.style.display = "block";
 
-          // Play welcome message
-          await playVoice(config.welcomeMessage);
+          // Play welcome message automatically
+          setTimeout(async () => {
+            await playVoice(config.welcomeMessage);
+          }, 1000);
 
         } catch (err) {
-          console.error("Error starting IVR:", err);
-          status.textContent = `Error: ${err.message}. Please check if the server is running on port 3000.`;
-          startButton.disabled = false;
-          startButton.textContent = "🎙️ Start IVR System";
+          console.error("Error auto-starting IVR:", err);
+          // Show start button as fallback
+          status.textContent = "Kanda button yo gutangira.";
         }
       }
 
-      // Handle user choice
+      // Fallback manual start
+      async function startIVR() {
+        await tryUnlockAudio();
+        await autoStartIVR();
+      }
+
+      // Handle user choice - now in Kinyarwanda
       async function handleChoice(choice) {
         const status = document.getElementById("status");
         
         if (!window.IVR_CONFIG) {
-          status.textContent = "Configuration not loaded. Please restart.";
+          status.textContent = "Amategeko ntiyafashwe. Subira utangire.";
           return;
         }
 
         const choices = {
-          '1': "Safe Youth can help you by providing trusted information on health, relationships, and ways to stay safe. We guide young people to make good decisions and connect them with support when needed.",
-          '2': "To avoid early pregnancy: wait until ready, prioritize education, avoid risks, use protection if sexually active, and consult health professionals",
-          '3': "Connecting you to our ai agent for more support. Please hold while we transfer your call."
+          '1': "Safe Youth irashobora kugufasha mu gutanga amakuru yizewe ku buzima, ku mibanire, n'uburyo bwo kwirinda. Duyobora urubyiruko gufata ibyemezo byiza no kubahuza n'ubufasha igihe bakeneye.",
+          '2': "Kugirango wirinde inda mbere y'igihe, ibuka ingingo z'ingenzi: tegereza uko uteguye, wibanze ku masomo yawe, kandi wirinde imyitwarire ishobora kuguteza ingorane. Niba uri mu gufatana n'umuntu, buri gihe koresha ibikurinda kandi ushake ubuyobozi bw'inzobere z'ubuzima.",
+          '3': "Turakunganira kuri operator wa Safe Youth kugirango ubone ubundi bufasha. Tegereza uko tuguha telefoni."
         };
 
         const message = choices[choice];
@@ -294,107 +301,29 @@
           try {
             await playVoice(message);
           } catch (err) {
-            status.textContent = "Error playing response. Please try again.";
+            status.textContent = "Ikosa mu gucuranza igisubizo. Ongera ugerageze.";
           }
         } else {
-          status.textContent = "Invalid choice. Please select 1, 2, or 3.";
+          status.textContent = "Ibyatoranijwe si byo. Hitamo 1, 2, cyangwa 3.";
         }
       }
 
-      // Check server connection on page load
+      // Auto-start when page loads
       window.addEventListener("load", async () => {
         try {
           const response = await fetch("http://localhost:3000/config");
           if (!response.ok) {
             throw new Error("Server not responding");
           }
-          document.getElementById("status").textContent = "Server connected. Click 'Start IVR System' to begin.";
+          // Auto start IVR
+          setTimeout(() => {
+            autoStartIVR();
+          }, 2000);
         } catch (err) {
-          document.getElementById("status").textContent = "⚠️ Server connection failed. Please make sure the server is running on port 3000.";
+          document.getElementById("status").textContent = "⚠️ Server ntiyakorana. Reba niba server ikora kuri port 3000.";
           console.error("Server connection error:", err);
         }
       });
     </script>
   </body>
 </html>
-
-<!-- <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>IVR Voice Auto Play</title>
-  </head>
-  <body>
-    <h1>Safe Youth IVR Demo</h1>
-
-    <audio id="audioPlayer" controls></audio>
-
-    <div style="margin-top: 20px">
-      <button onclick="handleChoice('1')">Press 1</button>
-      <button onclick="handleChoice('2')">Press 2</button>
-      <button onclick="handleChoice('3')">Press 3</button>
-    </div>
-
-    <script>
-      async function playVoice(text) {
-        const audioPlayer = document.getElementById("audioPlayer");
-        try {
-          const response = await fetch(
-            `http://localhost:3000/tts?text=${encodeURIComponent(text)}`
-          );
-          const data = await response.json();
-
-          // Set the audio source
-          audioPlayer.src = data.url;
-
-          // Wait for the audio to load before playing
-          audioPlayer.oncanplaythrough = () => {
-            audioPlayer.play().catch((err) => {
-              console.warn("Autoplay failed:", err);
-            });
-          };
-        } catch (err) {
-          console.error("Error playing voice:", err);
-        }
-      }
-
-      // 🔊 Unlock autoplay by playing silent audio first
-      function unlockAutoplay() {
-        const silentAudio = new Audio();
-        silentAudio.src =
-          "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
-        silentAudio.play().catch(() => {});
-      }
-
-      // ✅ Load IVR config and play welcome
-      window.addEventListener("load", async () => {
-        try {
-          unlockAutoplay(); // Try to unlock autoplay
-
-          const configRes = await fetch("http://localhost:3000/config");
-          const config = await configRes.json();
-
-          window.IVR_CONFIG = config;
-
-          // Play welcome message after short delay
-          setTimeout(() => {
-            playVoice(config.welcomeMessage);
-          }, 2000);
-        } catch (err) {
-          console.error("Error loading config:", err);
-        }
-      });
-
-      // Example choice handler
-      function handleChoice(choice) {
-        const message = window.IVR_CONFIG?.choices?.[choice];
-        if (message) {
-          playVoice(message);
-        } else {
-          console.warn("Invalid choice or missing config.");
-        }
-      }
-    </script>
-  </body>
-</html>
- -->
